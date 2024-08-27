@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import JSONResponse
 from fastapi import HTTPException, status
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -75,12 +76,21 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 
-async def current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def current_user(request: Request):
   credentials_exception = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
     detail="Could not validate credentials",
     headers={"WWW-Authenticate": "Bearer"},
   )
+  token = request.cookies.get("Authorization")
+  
+  if not token:
+    raise credentials_exception
+  
+  if token.startswith("Bearer "):
+    token = token[7:]
+  
+  print("TOKEN: ", token)
   try:
     payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     username: str = payload.get("sub")
@@ -127,7 +137,10 @@ async def login(form: Annotated[OAuth2PasswordRequestForm, Depends()]) -> Token:
   access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
   access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
   
-  return Token(access_token = access_token, token_type = "Bearer")
+  content = {"message": "Login exitoso"}
+  response = JSONResponse(content=content)
+  response.set_cookie(key="Authorization", value=f"Bearer {access_token}", httponly=True)
+  return response
 
 @router.get("/users/me")
 async def me(user: Annotated[User, Depends(current_user)]):
